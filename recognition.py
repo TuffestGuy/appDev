@@ -15,12 +15,22 @@ from kivy.metrics import dp
 from tensorflow.keras.models import load_model
 
 # Load model and class indices
-model = load_model('fruit_recognition_model.h5')
+model = load_model('fruit_recognition_model.keras')
 with open('class_indices.json', 'r') as f:
     fruit_classes = json.load(f)
 
+# Optional mapping for better USDA API results
+FRUIT_API_MAP = {
+    "Bell pepper": "raw Bell pepper",
+    "Carrot": "raw Carrot",
+    "Lemon": "raw Lemon",
+    "Orange": "raw Orange",
+    "Pickle": "raw Pickle",
+    
+}
+
 def get_recipes(fruit_name):
-    api_key = "7854e31eab6b446cae9ffda9c0fe1c67"
+    api_key = "c24cf4d074ab40ec9fe0c09d992054d9"
     url = "https://api.spoonacular.com/recipes/complexSearch"
     params = {"query": fruit_name, "apiKey": api_key, "number": 5}
     response = requests.get(url, params=params)
@@ -32,26 +42,39 @@ def get_recipes(fruit_name):
     return ["Error fetching recipes."]
 
 def get_nutrition(fruit_name):
-    api_key = "AruAFSTx9fcRdxMaHf5I9p696DotbfO8W1v2HWYp"
+    api_key = "a5b245b594354d0aac234e53ed6f2896"
     url = "https://api.nal.usda.gov/fdc/v1/foods/search"
-    params = {"query": fruit_name, "api_key": api_key, "pageSize": 1}
+
+    # Normalize fruit name
+    cleaned_name = fruit_name.strip().lower()
+    fruit_query = FRUIT_API_MAP.get(cleaned_name, cleaned_name)
+    print(f"[DEBUG] Fetching nutrition for: {fruit_query}")
+
+    params = {"query": fruit_query, "api_key": api_key, "pageSize": 1}
     response = requests.get(url, params=params)
+
     if response.status_code == 200:
         data = response.json()
         foods = data.get("foods", [])
         if foods:
             nutrients = foods[0].get("foodNutrients", [])
-            return {nutrient["nutrientName"]: nutrient["value"] for nutrient in nutrients[:5]}
-    return {"error": "No data found."}
+            if nutrients:
+                return {nutrient["nutrientName"]: nutrient["value"] for nutrient in nutrients[:5]}
+            else:
+                print(f"[DEBUG] No nutrients found for: {fruit_query}")
+        else:
+            print(f"[DEBUG] No foods found for: {fruit_query}")
+    else:
+        print(f"[DEBUG] API error {response.status_code}: {response.text}")
+
+    return {"Nutrition Info": "Not found"}
 
 class FruitRecognitionApp(App):
     def build(self):
-        Window.clearcolor = (0, 0, 0, 1)  # Dark background
+        Window.clearcolor = (0, 0, 0, 1)
 
-        # Main layout
         self.layout = BoxLayout(orientation='vertical', spacing=dp(10), padding=dp(10))
 
-        # Top label: Name & Confidence
         self.result_label = Label(
             text="Name & Confidence",
             font_size='18sp',
@@ -62,25 +85,21 @@ class FruitRecognitionApp(App):
         )
         self.layout.add_widget(self.result_label)
 
-        # Camera preview
         self.image = Image(size_hint=(1, 0.6))
         self.layout.add_widget(self.image)
 
-        # Stop/Start button - now starts as "Start"
         self.stop_button = Button(
-        text="Start",
-        size_hint=(1, 0.08),
-        background_color=(0.2, 0.8, 0.2, 1),  # Green for Start
-        background_normal='',
-        font_size='18sp'
-    )
+            text="Start",
+            size_hint=(1, 0.08),
+            background_color=(0.2, 0.8, 0.2, 1),
+            background_normal='',
+            font_size='18sp'
+        )
         self.stop_button.bind(on_press=self.toggle_camera)
         self.layout.add_widget(self.stop_button)
 
-        # Bottom info layout (Nutrition & Recipes)
         bottom_layout = BoxLayout(orientation='horizontal', size_hint=(1, 0.24), padding=[dp(10), 0], spacing=dp(10))
 
-        # Nutrition Info Label
         self.nutrition_title = Label(
             text="Nutrition Info",
             font_size='18sp',
@@ -90,7 +109,6 @@ class FruitRecognitionApp(App):
         )
         bottom_layout.add_widget(self.nutrition_title)
 
-        # Recipes Label
         self.recipes_label = Label(
             text="Recipes",
             font_size='18sp',
@@ -169,7 +187,7 @@ class FruitRecognitionApp(App):
     @mainthread
     def update_ui(self, recipes_text, nutrition_text):
         self.recipes_label.text = recipes_text
-        self.nutrition_title.text = f"Nutrition Info\n{nutrition_text}"
+        self.nutrition_title.text = f"Nutrition Info\n{nutrition_text if nutrition_text else 'Not found.'}"
 
     def on_stop(self):
         if self.capture:
